@@ -1,8 +1,10 @@
+mod audio;
+mod config;
+mod font;
+mod output;
 mod time;
 
 use clap::Parser;
-
-use crate::time::parse_duration;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -10,10 +12,16 @@ struct Args {
     session: String,
     #[clap(long, short)]
     break_: String,
+    #[clap(long, short)]
+    number: u32,
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let args = Args::parse();
-    let session_dur = parse_duration(&args.session).unwrap();
-    let break_dur = parse_duration(&args.break_).unwrap();
+    let session_sec = time::parse_as_sec(&args.session).unwrap();
+    let break_sec = time::parse_as_sec(&args.break_).unwrap();
+    let number = args.number;
+
+    time::timer(session_sec, break_sec, number);
 }
