@@ -1,14 +1,9 @@
-use std::{
-    io::Write,
-    path::PathBuf,
-    str::FromStr,
-    sync::{Condvar, Mutex},
-};
+use std::sync::{Condvar, Mutex};
 
 use anyhow::{Context, Result};
 use once_cell::sync::Lazy;
 
-use crate::{config::CONFIG, output::print_top};
+use crate::config::CONFIG;
 
 pub static STOP_STATE: Lazy<Mutex<bool>> = Lazy::new(|| Mutex::new(false));
 pub static STOP_STATE_CONDVAR: Lazy<Mutex<Condvar>> = Lazy::new(|| Mutex::new(Condvar::new()));
@@ -101,8 +96,8 @@ fn session(sec: u64, count: u32, max: u32) {
         println!(
             "{}\x1b[35m{}\x1b[0m{} working...\n",
             " ".repeat(x_pad),
-            "▄".repeat(count as usize + 1),
-            "▄".repeat(max as usize - count as usize - 1)
+            "▀ ".repeat(count as usize + 1),
+            "▄ ".repeat(max as usize - count as usize - 1)
         );
         println!("\x1b[35m{}\x1b[0m", output);
     }
@@ -129,8 +124,8 @@ fn break_(sec: u64, count: u32, max: u32) {
         println!(
             "{}\x1b[32m{}\x1b[0m{} breaking...\n",
             " ".repeat(x_pad),
-            "▄".repeat(count as usize + 1),
-            "▄".repeat(max as usize - count as usize - 1)
+            "▀ ".repeat(count as usize + 1),
+            "▄ ".repeat(max as usize - count as usize - 1)
         );
         println!("\x1b[32m{}\x1b[0m", output);
     }
