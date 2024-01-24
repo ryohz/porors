@@ -28,6 +28,7 @@ pub struct Config {
     pub aafont: AaFont,
     pub session_end_audio: PathBuf,
     pub break_end_audio: PathBuf,
+    pub info_saved: PathBuf,
 }
 
 pub struct Bind {

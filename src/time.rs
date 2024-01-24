@@ -8,6 +8,104 @@ use crate::config::CONFIG;
 pub static STOP_STATE: Lazy<Mutex<bool>> = Lazy::new(|| Mutex::new(false));
 pub static STOP_STATE_CONDVAR: Lazy<Mutex<Condvar>> = Lazy::new(|| Mutex::new(Condvar::new()));
 
+pub struct Timer {
+    session_sec: u64,
+    break_sec: u64,
+    number: usize,
+    current: usize,
+    current_sec: u64,
+}
+
+impl Timer {
+    pub fn new(session_sec: u64, break_sec: u64, number: usize) -> Self {
+        Self {
+            session_sec,
+            break_sec,
+            number,
+            current: 0,
+            current_sec: 0,
+        }
+    }
+
+    pub fn start(&mut self) {
+        for current in 0..self.number {
+            self.current = current;
+            self.timer(TimerType::Session);
+            std::thread::spawn(move || crate::audio::nodify_session_end());
+            self.timer(TimerType::Break);
+            std::thread::spawn(move || crate::audio::nodify_break_end());
+        }
+    }
+
+    fn timer(&mut self, type_: TimerType) {
+        let (sec, current, number) = match type_ {
+            TimerType::Session => (self.session_sec, self.current, self.number),
+            TimerType::Break => (self.break_sec, self.current, self.number),
+        };
+        let aafont = CONFIG.aafont.clone();
+        let (progress_shared, progress_condvar) = setup_counter(sec);
+
+        let mut progress = sec;
+        while progress > 0 {
+            let new_progress = progress_condvar
+                .wait(progress_shared.lock().unwrap())
+                .unwrap();
+            progress = *new_progress;
+            println!("{}", progress);
+            let h = progress / 3600;
+            let m = (progress % 3600) / 60;
+            let s = progress % 60;
+            let output = format!("{}:{}:{}", h, m, s);
+            let output = aafont.get_string(output.as_str());
+            let (output, x_pad, y_pad) = output.center_aligned();
+            crate::output::clear();
+            let (indicator, output) = match type_ {
+                TimerType::Session => (
+                    format!(
+                        "{}\x1b[35m{}\x1b[0m{} working...\n",
+                        " ".repeat(x_pad),
+                        "▀ ".repeat(current + 1),
+                        "▄ ".repeat(number - current - 1)
+                    ),
+                    format!("\x1b[35m{}\x1b[0m", output),
+                ),
+                Break => (
+                    format!(
+                        "{}\x1b[32m{}\x1b[0m{} working...\n",
+                        " ".repeat(x_pad),
+                        "▀ ".repeat(current + 1),
+                        "▄ ".repeat(number - number - 1)
+                    ),
+                    format!("\x1b[32m{}\x1b[0m", output),
+                ),
+            };
+            println!("{}", indicator);
+            println!("\x1b[32m{}\x1b[0m", output);
+        }
+    }
+}
+
+fn setup_counter(
+    sec: u64,
+) -> (
+    std::sync::Arc<std::sync::Mutex<u64>>,
+    std::sync::Arc<std::sync::Condvar>,
+) {
+    let (progress_shared, progress_condvar) = (
+        std::sync::Arc::new(std::sync::Mutex::new(sec)),
+        std::sync::Arc::new(std::sync::Condvar::new()),
+    );
+
+    let (progress_shared_clone, progress_condvar_clone) =
+        (progress_shared.clone(), progress_condvar.clone());
+
+    tokio::spawn(async move {
+        counter(sec, progress_shared_clone, progress_condvar_clone);
+    });
+
+    (progress_shared, progress_condvar)
+}
+
 pub fn parse_as_sec(raw: &str) -> Result<u64> {
     let with_unit = |unit: &str, string: &str| -> Result<(u64, String)> {
         if string.contains(unit) {
@@ -41,94 +139,9 @@ pub fn parse_as_sec(raw: &str) -> Result<u64> {
     Ok(sec_sum)
 }
 
-pub fn timer(session_sec: u64, break_sec: u64, number: u32) {
-    for i in 0..number {
-        session(session_sec, i, number);
-        std::thread::spawn(move || crate::audio::nodify_session_end());
-        break_(break_sec, i, number);
-        std::thread::spawn(move || crate::audio::nodify_break_end());
-    }
-}
-
-fn setup_counter(
-    sec: u64,
-) -> (
-    std::sync::Arc<std::sync::Mutex<u64>>,
-    std::sync::Arc<std::sync::Condvar>,
-) {
-    let (progress_shared, progress_condvar) = (
-        std::sync::Arc::new(std::sync::Mutex::new(sec)),
-        std::sync::Arc::new(std::sync::Condvar::new()),
-    );
-
-    let (progress_shared_clone, progress_condvar_clone) =
-        (progress_shared.clone(), progress_condvar.clone());
-
-    tokio::spawn(async move {
-        counter(sec, progress_shared_clone, progress_condvar_clone);
-    });
-
-    (progress_shared, progress_condvar)
-}
-
-fn session(sec: u64, count: u32, max: u32) {
-    let aafont = CONFIG.aafont.clone();
-    let (progress_shared, progress_condvar) = setup_counter(sec);
-
-    let mut progress = sec;
-    while progress > 0 {
-        let stop_state = STOP_STATE.lock().unwrap();
-        if *stop_state {
-            let _ = STOP_STATE_CONDVAR.lock().unwrap().wait(stop_state);
-        }
-        let new_progress = progress_condvar
-            .wait(progress_shared.lock().unwrap())
-            .unwrap();
-        progress = *new_progress;
-
-        let h = progress / 3600;
-        let m = (progress % 3600) / 60;
-        let s = progress % 60;
-        let output = format!("{}:{}:{}", h, m, s);
-        let output = aafont.get_string(output.as_str());
-        let (output, x_pad, y_pad) = output.center_aligned();
-        crate::output::clear();
-        println!(
-            "{}\x1b[35m{}\x1b[0m{} working...\n",
-            " ".repeat(x_pad),
-            "▀ ".repeat(count as usize + 1),
-            "▄ ".repeat(max as usize - count as usize - 1)
-        );
-        println!("\x1b[35m{}\x1b[0m", output);
-    }
-}
-
-fn break_(sec: u64, count: u32, max: u32) {
-    let aafont = CONFIG.aafont.clone();
-    let (progress_shared, progress_condvar) = setup_counter(sec);
-
-    let mut progress = sec;
-    while progress > 0 {
-        let new_progress = progress_condvar
-            .wait(progress_shared.lock().unwrap())
-            .unwrap();
-        progress = *new_progress;
-        println!("{}", progress);
-        let h = progress / 3600;
-        let m = (progress % 3600) / 60;
-        let s = progress % 60;
-        let output = format!("{}:{}:{}", h, m, s);
-        let output = aafont.get_string(output.as_str());
-        let (output, x_pad, y_pad) = output.center_aligned();
-        crate::output::clear();
-        println!(
-            "{}\x1b[32m{}\x1b[0m{} breaking...\n",
-            " ".repeat(x_pad),
-            "▀ ".repeat(count as usize + 1),
-            "▄ ".repeat(max as usize - count as usize - 1)
-        );
-        println!("\x1b[32m{}\x1b[0m", output);
-    }
+enum TimerType {
+    Session,
+    Break,
 }
 
 fn counter(

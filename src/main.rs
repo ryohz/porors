@@ -5,6 +5,7 @@ mod output;
 mod time;
 
 use clap::Parser;
+use serde::{Deserialize, Serialize};
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -24,4 +25,11 @@ async fn main() {
     let number = args.number;
 
     time::timer(session_sec, break_sec, number);
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TimerState {
+    pub sec: u64,
+    pub session_sec: u64,
+    pub break_sec: u64,
 }
